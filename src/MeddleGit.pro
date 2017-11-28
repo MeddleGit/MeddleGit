@@ -11,6 +11,11 @@ greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 TARGET = MeddleGit
 TEMPLATE = app
 
+win32 {
+    RC_FILE = MeddleGit.rc
+    LIBS += -luser32
+}
+
 macx {
     ICON = images/MeddleGit.icns
     QMAKE_INFO_PLIST = Info.plist
