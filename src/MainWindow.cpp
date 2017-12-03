@@ -12,6 +12,7 @@
 #include <QMessageBox>
 #include <QDebug>
 #include <QMap>
+#include <QGraphicsItem>
 
 #include <queue>
 #include <tuple>
@@ -42,71 +43,111 @@ MainWindow::~MainWindow()
     delete ui;
 }
 
+template<class Key, class Value>
+struct Test
+{
+    std::vector<int> a;
+
+    std::vector<int>::iterator works()
+    {
+        return a.begin();
+    }
+
+    std::vector<std::pair<Key, Value>> b;
+
+    typename std::vector<std::pair<Key, Value>>::iterator why()
+    {
+        return b.begin();
+    }
+};
+
 #include <QTime>
 #include <QElapsedTimer>
+
 void MainWindow::on_actionTest_triggered()
 {
     //Run git command
     QElapsedTimer timer;
     timer.start();
-    QString output;
-    output = Git::Cmd({"log", "--graph", "--date-order", "--no-color", "--all", "--pretty=format:%H %P"});
+    QFile f("/Users/duncan/Projects/git.txt");
+    f.open(QFile::ReadOnly);
+    mOutput = f.readAll();
+    f.close();
+    //mOutput = Git::Cmd({"log", "--graph", "--date-order", "--no-color", "--all", "--pretty=format:%H %P"});
 
     qDebug() << "git command finished" << timer.elapsed() << "ms";
     timer.restart();
 
     //Parse the output
-    mLogLines = output.split('\n');
+    mLogLines.clear();
+    mLogLines.reserve(1000000);
     mHashes.clear();
-    mHashes.reserve(mLogLines.length());
+    mHashes.reserve(1000000);
     mCommitMap.clear();
+    mCommitMap.reserve(1000000);
     int maxWidth = -1, maxLine = -1;
-    for(int i = 0; i < mLogLines.length(); i++)
+    for(int i = 0, linepos = 0, linecount = 0; i < mOutput.length(); i++)
     {
-        QString & line = mLogLines[i];
-        QString log;
-        QStringList hashes;
-        for(int j = 0; j < line.length(); j++)
+        if(mOutput.at(i) == '\n' || i + 1 == mOutput.length())
         {
-            auto ch = line[j];
-            if((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'))
+            QStringRef line(&mOutput, linepos, i - linepos + (i + 1 == mOutput.length()));
+            QStringRef log;
+            QVector<QStringRef> hashes;
+            for(int j = 0; j < line.length(); j++)
             {
-                log = line.mid(0, j);
-                hashes = line.mid(j).split(' ', QString::SkipEmptyParts);
-                break;
+                auto ch = line.at(j).toLatin1();
+                if((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'))
+                {
+                    log = line.mid(0, j);
+                    hashes = line.mid(j).split(' ', QString::SkipEmptyParts);
+                    break;
+                }
             }
+
+            if(log.isEmpty())
+                log = line;
+
+            if(log.length() > maxWidth)
+                maxWidth = log.length(), maxLine = i;
+
+            if(!hashes.empty())
+                mCommitMap.add(hashes.first(), linecount);
+
+            mLogLines.append(log);
+            mHashes.push_back(std::move(hashes));
+
+            linepos = i + 1, linecount++;
         }
-
-        if(log.isEmpty())
-            log = line;
-
-        if(log.length() > maxWidth)
-            maxWidth = log.length(), maxLine = i;
-
-        if(!hashes.empty())
-            mCommitMap[hashes.first()] = i;
-
-        mLogLines[i] = log;
-        mHashes.push_back(hashes);
     }
+    mCommitMap.sort();
+    /*QString hash("d455a3696c72283923e6870e9e4fe1daa861d7cd");
+    auto found = mCommitMap.find(QStringRef(&hash));
+    if(found != mCommitMap.end())
+        qDebug() << found->first << found->second;
+    else
+        qDebug() << ":'(";*/
+
     setWindowTitle(QString("grid: %1x%2 (%3)").arg(maxWidth).arg(mLogLines.length()).arg(maxLine));
 
     qDebug() << "parsed output" << timer.elapsed() << "ms";
     timer.restart();
 
     //Set the textual output
-    output.clear();
-    for(int i = 0; i < mLogLines.length(); i++)
     {
-        output += mLogLines[i];
-        if(!mHashes[i].isEmpty())
+        QString output;
+        output.reserve(mOutput.size());
+        for(int i = 0; i < mLogLines.length(); i++)
         {
-            output += ' ';
-            output += mHashes[i].first().left(8);
+            output += mLogLines[i];
+            if(!mHashes[i].isEmpty())
+            {
+                output += ' ';
+                output += mHashes[i].first().left(8);
+            }
+            output += '\n';
         }
-        output += '\n';
+        ui->plainTextLog->setPlainText(output);
     }
-    ui->plainTextLog->setPlainText(output);
 
     qDebug() << "set text output" << timer.elapsed() << "ms";
     timer.restart();
@@ -165,12 +206,13 @@ void MainWindow::on_actionTest_triggered()
     Grid grid(maxWidth, mLogLines.length());
     for(int y = 0; y < mLogLines.length(); y++)
     {
-        QString & line = mLogLines[y];
+        const QStringRef & line = mLogLines.at(y);
         for(int x = 0; x < line.length(); x++)
         {
-            if(line[x] == '*')
+            auto ch = line.at(x).toLatin1();
+            if(ch == '*')
                 commits.push_back(QPoint(x, y));
-            grid.set(x, y, line[x].toLatin1());
+            grid.set(x, y, ch);
         }
     }
 
@@ -181,11 +223,14 @@ void MainWindow::on_actionTest_triggered()
 
     //Walk the paths from each commit to their parents
     qDebug() << "total commits: " << commits.size();
-    std::map<std::tuple<char, char, int, int>, int> usedCases;
+    std::map<std::tuple<char, char, int, int>, std::pair<int, int>> usedCases;
+    std::vector<QPoint> queue;
+    queue.reserve(100);
     for(size_t commitIdx = 0; commitIdx < commits.size(); commitIdx++)
     {
         auto commit = commits[commitIdx];
         std::vector<QPoint> parents;
+        parents.reserve(2);
         auto & hashes = mHashes[commit.y()];
         //qDebug() << QString("%1/%2 (%3)").arg(commitIdx + 1).arg(commits.size()).arg(hashes.first());
         //qDebug() << count << hashes.first() << commit;
@@ -195,14 +240,14 @@ void MainWindow::on_actionTest_triggered()
             auto found = mCommitMap.find(hashes[i]);
             if(found == mCommitMap.end())
             {
-                qDebug() << "this shouldn't happen (parent hash)...";
+                qDebug() << "this shouldn't happen (parent hash)..." << hashes[i];
                 return;
             }
-            int parentY = found.value();
+            int parentY = found->second;
             int parentX = -1;
             for(int j = 0; j < mLogLines[parentY].length(); j++)
             {
-                if(mLogLines[parentY][j] == '*')
+                if(mLogLines[parentY].at(j) == '*')
                 {
                     parentX = j;
                     break;
@@ -236,10 +281,11 @@ void MainWindow::on_actionTest_triggered()
 
         //Walk the path of the dragon
         std::map<QPoint, QPoint, QPointLess> previous;
-        std::vector<QPoint> queue;
         std::vector<QPoint> reached;
+        queue.clear();
         queue.push_back(commit);
         auto oldpaths = paths;
+        std::vector<std::vector<QPoint>> test;
         while(!queue.empty())
         {
             QPoint p = queue.back();
@@ -259,7 +305,7 @@ void MainWindow::on_actionTest_triggered()
             {
                 //qDebug() << "found!";
                 reached.push_back(p);
-                std::vector<QPoint> path;
+                /*std::vector<QPoint> path;
                 do
                 {
                     path.push_back(p);
@@ -267,6 +313,7 @@ void MainWindow::on_actionTest_triggered()
                 } while(p != commit);
                 path.push_back(p);
                 std::reverse(path.begin(), path.end());
+                test.push_back(path);*/
                 paths++;
                 //commitpaths[commitIdx][parentIdx].push_back(path);
                 /*QString out;
@@ -292,10 +339,13 @@ void MainWindow::on_actionTest_triggered()
                 if(np.y() > maxY) //TODO: turn on optimization if the code is stable
                     return false;
                 if(grid[np] != check)
+                {
+                    //usedCases[std::make_tuple(cur, check, dx, dy)].second++;
                     return false;
+                }
                 queue.push_back(np);
-                previous[np] = p;
-                usedCases[std::make_tuple(cur, check, dx, dy)]++;
+                //previous[np] = p;
+                //usedCases[std::make_tuple(cur, check, dx, dy)].first++;
                 return true;
             };
 
@@ -304,43 +354,68 @@ void MainWindow::on_actionTest_triggered()
 
             switch(cur)
             {
-            case '*':
-                if(neighbor(+0, +1, '*'))
-                    break;
-                neighbor(+1, +1, '\\');
-                neighbor(-1, +1, '/');
-                neighbor(+0, +1, '|');
-                neighbor(+1, +0, '-');
-                break;
-
             case '|':
-                if(neighbor(+0, +1, '*'))
-                    break;
                 if(neighbor(+0, +1, '|'))
                     break;
-                neighbor(-1, +1, '/');
-                neighbor(+1, +1, '\\');
+                if(neighbor(+1, +1, '\\'))
+                    break;
+                if(neighbor(-1, +1, '/'))
+                    break;
+                if(neighbor(+0, +1, '*'))
+                    break;
                 break;
 
             case '\\':
+                if(neighbor(+0, +1, '/'))
+                    break;
                 if(neighbor(+1, +1, '*'))
                     break;
-                neighbor(+0, +1, '/');
-                neighbor(+1, +1, '|');
-                neighbor(+1, +1, '\\');
+                if(neighbor(+1, +1, '|'))
+                    break;
+                if(neighbor(+1, +1, '\\'))
+                    break;
+                if(queue.size() - prevsize == 0)
+                    neighbor(+0, +1, '_');
                 break;
 
             case '/':
+                if(peekNeighbor(-1, +0) == '|' && neighbor(-2, +0, '_'))
+                    break;
                 if(neighbor(-2, +1, '/'))
                     break;
-                if(peekNeighbor(-1, +0) == '|' && neighbor(-2, +0, '_'))
+                if(neighbor(-1, +1, '|'))
+                    break;
+                if(neighbor(-1, +1, '/'))
+                    break;
+                if(neighbor(-1, +1, '*'))
+                    break;
+                if(neighbor(-1, +1, '_'))
                     break;
                 if(peekNeighbor(-1, +0) == ' ' && peekNeighbor(-2, +0) == '|' && neighbor(-3, +0, '_'))
                     break;
-                neighbor(-1, +1, '|');
-                neighbor(-1, +1, '*');
+                break;
+
+            case '*':
+                neighbor(+0, +1, '*');
+                neighbor(+0, +1, '|');
+                neighbor(+1, +1, '\\');
                 neighbor(-1, +1, '/');
-                neighbor(-1, +1, '_');
+                if(peekNeighbor(+1, +0) == '-')
+                {
+                    int i = 1;
+                    while(true)
+                    {
+                        auto ch = peekNeighbor(i + 1, 0);
+                        if(ch == '-' || ch == '.')
+                        {
+                            neighbor(i + 2, 1, '\\');
+                            i += 2;
+                        }
+                        else
+                            break;
+                    }
+                }
+                //neighbor(+1, +0, '-');
                 break;
 
             case '_':
@@ -351,18 +426,14 @@ void MainWindow::on_actionTest_triggered()
 
                 //This is a very tricky case, the underscore in this configuration can connect to any '|' branch on it's left
                 //Probably a bug in git: https://stackoverflow.com/questions/15250012/unexpected-underscore-in-git-log-graph-output
-                for(int i = 1; i < p.x(); i++)
-                {
-                    neighbor(-i, +0, '|');
-                }
-
-                //neighbor(-2, +0, '|'); //TODO: this is FUCKING shit
+                for(int i = 1; i < p.x(); i+=2)
+                    neighbor(-i + 1, +0, '|');
                 break;
 
             case '-':
                 neighbor(+1, +0, '-');
-                neighbor(+1, +0, '.');
                 neighbor(+1, +1, '\\');
+                neighbor(+1, +0, '.');
                 break;
 
             case '.':
@@ -374,10 +445,25 @@ void MainWindow::on_actionTest_triggered()
                 break;
             }
 
-            if(queue.size() - prevsize == 0)
+            /*if(queue.size() - prevsize > 1)
             {
-                //qDebug() << "uncaught cases!" << cur << p;
-            }
+                switch(cur)
+                {
+                case '*':
+                case '-':
+                case '.':
+                case '_': //TODO: find a solution for this
+                    break;
+                default:
+                    qDebug() << "branching" << cur << p;
+                    return;
+                }
+            }*/
+
+            /*if(queue.size() - prevsize == 0)
+            {
+                qDebug() << "uncaught cases!" << cur << p;
+            }*/
         }
 
         for(size_t i = 0; i < parents.size(); i++)
@@ -390,21 +476,34 @@ void MainWindow::on_actionTest_triggered()
 
         if(paths - oldpaths != parents.size())
         {
-            qDebug() << ":(" << commit << hashes.first() << '\n';
+            qDebug() << ":(" << commit << hashes.first() << paths - oldpaths << '\n';
+            auto blub = [](const std::vector<QPoint> & path)
+            {
+                QString result;
+                for(size_t i = 0; i < path.size(); i++)
+                {
+                    if(i)
+                        result += " ";
+                    result += QString("(%1, %2)").arg(path[i].x()).arg(path[i].y());
+                }
+                return result;
+            };
+            for(auto path : test)
+                qDebug() << blub(path);
         }
 
         //qDebug() << "finished";
     }
 
-    /*if(usedCases.size() != 27)
+    //if(usedCases.size() != 27)
     {
-        qDebug() << "not all cases used..." << usedCases.size();
+        qDebug() << "case usage:" << usedCases.size();
         for(auto it : usedCases)
         {
             auto data = it.first;
-            qDebug() << std::get<0>(data) << std::get<1>(data) << std::get<2>(data) << std::get<3>(data) << "count:" << it.second;
+            qDebug() << std::get<0>(data) << std::get<1>(data) << std::get<2>(data) << std::get<3>(data) << "hits:" << it.second.first << "misses:" << it.second.second;
         }
-    }*/
+    }
 
     qDebug() << "parse paths" << timer.elapsed() << "ms";
     timer.restart();
@@ -415,15 +514,6 @@ void MainWindow::on_actionTest_triggered()
     QGraphicsScene* scene = new QGraphicsScene(this);
     ui->graph->setRenderHints(QPainter::Antialiasing | QPainter::SmoothPixmapTransform);
 
-    scene->addRect(0, 0, 400, 1600, QPen(Qt::black));
-
-    ui->graph->setScene(scene);
-
-    qDebug() << "draw scene" << timer.elapsed() << "ms";
-    timer.restart();
-
-    /*return;
-
     auto transx = [](int x)
     {
         return 10 + x * 6;
@@ -433,12 +523,12 @@ void MainWindow::on_actionTest_triggered()
         return 10 + y * 14;
     };
 
-    //scene->addRect(0, 0, transx(maxWidth), transy(mLogLines.length()), QPen(Qt::black));
+    scene->addRect(0, 0, transx(maxWidth), transy(mLogLines.length()), QPen(Qt::black));
 
     for(QPoint & commit : commits)
     {
         auto & hashes = mHashes[commit.y()];
-        QString hash = hashes[0];
+        auto hash = hashes[0];
         if(hash.isEmpty())
         {
             qDebug() << "this shouldn't happen (commit)...";
@@ -447,15 +537,30 @@ void MainWindow::on_actionTest_triggered()
         int cx = transx(commit.x()), cy = transy(commit.y());
         for(int j = 1; j < hashes.length(); j++)
         {
-            auto found = commitmap.find(hashes[j]);
-            if(found == commitmap.end())
+            auto found = mCommitMap.find(hashes[j]);
+            if(found == mCommitMap.end())
             {
                 qDebug() << "this shouldn't happen (parent)..." << hash << hashes[j];
             }
             else
             {
-                QPoint parent = found.value();
-                int px = transx(parent.x()), py = transy(parent.y());
+                //TODO: store parent X
+                int parentY = found->second;
+                int parentX = -1;
+                for(int j = 0; j < mLogLines[parentY].length(); j++)
+                {
+                    if(mLogLines[parentY].at(j) == '*')
+                    {
+                        parentX = j;
+                        break;
+                    }
+                }
+                if(parentX < 0)
+                {
+                    qDebug() << "this shouldn't happen (parentX)...";
+                    break;
+                }
+                int px = transx(parentX), py = transy(parentY);
                 scene->addLine(cx, cy, px, py, QPen(Qt::blue));
             }
         }
@@ -467,7 +572,10 @@ void MainWindow::on_actionTest_triggered()
         scene->addRect(cx - 2, cy - 2, 4, 4, QPen(Qt::red), QBrush(Qt::red));
     }
 
-    ui->graph->setScene(scene);*/
+    ui->graph->setScene(scene);
+
+    qDebug() << "draw scene" << timer.elapsed() << "ms";
+    timer.restart();
 }
 
 void MainWindow::on_plainTextLog_cursorPositionChanged()
@@ -495,7 +603,7 @@ void MainWindow::on_plainTextLog_cursorPositionChanged()
     QString parents;
     for(int i = 1; i < hashes.length(); i++)
         parents.append(hashes[i]), parents.push_back('\n');
-    ui->plainTextCommit->setPlainText(QString("%1: %2\nparent(s):\n%3").arg(line).arg(hashes[0]).arg(parents));
+    ui->plainTextCommit->setPlainText(QString("%1: %2\nparent(s):\n%3").arg(line).arg(hashes[0].toString()).arg(parents));
 }
 
 void MainWindow::on_pushButton_clicked()

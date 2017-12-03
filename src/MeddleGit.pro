@@ -40,7 +40,8 @@ SOURCES += \
 
 HEADERS += \
     MainWindow.h \
-    Git.h
+    Git.h \
+    VectorMap.h
 
 FORMS += \
     MainWindow.ui

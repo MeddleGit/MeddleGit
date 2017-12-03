@@ -3,6 +3,8 @@
 #include <QMainWindow>
 #include <QMap>
 
+#include <VectorMap.h>
+
 namespace Ui
 {
 class MainWindow;
@@ -24,7 +26,8 @@ private slots:
 private:
     Ui::MainWindow *ui;
 
-    QStringList mLogLines;
-    std::vector<QStringList> mHashes;
-    QMap<QString, int> mCommitMap;
+    QString mOutput;
+    QVector<QStringRef> mLogLines;
+    std::vector<QVector<QStringRef>> mHashes;
+    VectorMap<QStringRef, int> mCommitMap;
 };
