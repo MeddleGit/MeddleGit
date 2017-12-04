@@ -1,16 +1,18 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 #include <initializer_list>
 
 class Git
 {
 public:
-    static QString Cmd(std::initializer_list<QString> args);
+    QString Cmd(std::initializer_list<QString> args);
+    bool SetWorkingDirectory(const QString & dir);
+    QString GetWorkingDirectory() { return mWorkingDirectory; }
 
-    /*template<typename... Ts>
-    static QString Cmd(Ts&&... args)
-    {
-        return Cmd(std::initializer_list<QString>{args...});
-    }*/
+private:
+    QString mWorkingDirectory;
+
+    bool cmd(const QString & workingDirectory, const QStringList & args, QString & output);
 };

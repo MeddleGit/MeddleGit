@@ -13,6 +13,9 @@
 #include <QDebug>
 #include <QMap>
 #include <QGraphicsItem>
+#include <QTime>
+#include <QElapsedTimer>
+#include <QFileDialog>
 
 #include <queue>
 #include <tuple>
@@ -29,6 +32,7 @@ MainWindow::MainWindow(QWidget *parent) :
     ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
+    mTitle = windowTitle();
 
     // Windows hack for setting the icon in the taskbar.
 #ifdef Q_OS_WIN
@@ -61,21 +65,22 @@ struct Test
     }
 };
 
-#include <QTime>
-#include <QElapsedTimer>
-
 void MainWindow::on_actionTest_triggered()
 {
     //Run git command
     QElapsedTimer timer;
     timer.start();
+#ifdef Q_OS_OSX
     QFile f("/Users/duncan/Projects/git.txt");
     f.open(QFile::ReadOnly);
     mOutput = f.readAll();
     f.close();
-    //mOutput = Git::Cmd({"log", "--graph", "--date-order", "--no-color", "--all", "--pretty=format:%H %P"});
+#else
+    mOutput = mGit.Cmd({"log", "--graph", "--date-order", "--no-color", "--all", "--pretty=format:%H %P"});
+#endif //Q_OS_OSX
 
     qDebug() << "git command finished" << timer.elapsed() << "ms";
+    qDebug() << mOutput;
     timer.restart();
 
     //Parse the output
@@ -646,4 +651,15 @@ void MainWindow::on_pushButton_clicked()
     scene->addEllipse(8, 8, 4, 4, QPen(QColor(255, 150, 0)), QBrush(QColor(255, 150, 0)));
 
     ui->graph->setScene(scene);
+}
+
+void MainWindow::on_actionOpen_triggered()
+{
+    auto dir = QDir::toNativeSeparators(QFileDialog::getExistingDirectory(this, "caption"));
+    if(dir.isEmpty())
+        return;
+    if(!mGit.SetWorkingDirectory(dir))
+        QMessageBox::warning(this, tr("Error"), tr("Invalid git repository..."));
+    else
+        setWindowTitle(tr("%1 (%2)").arg(mTitle, mGit.GetWorkingDirectory()));
 }
