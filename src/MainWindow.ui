@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>805</width>
-    <height>542</height>
+    <height>635</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -48,8 +48,8 @@
    <widget class="QPlainTextEdit" name="plainTextCommit">
     <property name="geometry">
      <rect>
-      <x>470</x>
-      <y>10</y>
+      <x>10</x>
+      <y>480</y>
       <width>331</width>
       <height>81</height>
      </rect>
@@ -80,14 +80,24 @@
    <widget class="QPushButton" name="pushButton">
     <property name="geometry">
      <rect>
-      <x>490</x>
-      <y>100</y>
-      <width>113</width>
+      <x>350</x>
+      <y>480</y>
+      <width>111</width>
       <height>32</height>
      </rect>
     </property>
     <property name="text">
      <string>PushButton</string>
+    </property>
+   </widget>
+   <widget class="CommitList" name="widget" native="true">
+    <property name="geometry">
+     <rect>
+      <x>470</x>
+      <y>10</y>
+      <width>181</width>
+      <height>461</height>
+     </rect>
     </property>
    </widget>
   </widget>
@@ -97,7 +107,7 @@
      <x>0</x>
      <y>0</y>
      <width>805</width>
-     <height>20</height>
+     <height>22</height>
     </rect>
    </property>
    <property name="nativeMenuBar">
@@ -152,6 +162,14 @@
   </action>
  </widget>
  <layoutdefault spacing="6" margin="11"/>
+ <customwidgets>
+  <customwidget>
+   <class>CommitList</class>
+   <extends>QWidget</extends>
+   <header>CommitList.h</header>
+   <container>1</container>
+  </customwidget>
+ </customwidgets>
  <resources/>
  <connections/>
 </ui>

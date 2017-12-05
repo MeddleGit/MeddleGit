@@ -36,12 +36,14 @@ DEFINES += QT_DEPRECATED_WARNINGS
 SOURCES += \
     main.cpp \
     MainWindow.cpp \
-    Git.cpp
+    Git.cpp \
+    CommitList.cpp
 
 HEADERS += \
     MainWindow.h \
     Git.h \
-    VectorMap.h
+    VectorMap.h \
+    CommitList.h
 
 FORMS += \
     MainWindow.ui
